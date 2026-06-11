@@ -7,17 +7,82 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div id="ui">
-        <h1>Auto FNF Generator</h1>
-        <input type="file" id="audio-upload" accept="audio/*">
-        <div id="stats">
-            <p>Score: <span id="score">0</span></p>
-            <p>Combo: <span id="combo">0</span></p>
-            <p id="judgment"></p>
+    <div class="container">
+        <!-- Settings Panel -->
+        <div class="panel settings">
+            <h2>Settings</h2>
+            <div class="setting-group">
+                <label>Difficulty</label>
+                <select id="setting-difficulty">
+                    <option value="easy">Easy</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="hard">Hard</option>
+                    <option value="wtf">WTF</option>
+                </select>
+            </div>
+            <div class="setting-group">
+                <label>Keybinds (Key 1 / Key 2)</label>
+                <div>Left: <input type="text" id="key-left-1" value="ArrowLeft" size="8"> <input type="text" id="key-left-2" value="A" size="8"></div>
+                <div>Down: <input type="text" id="key-down-1" value="ArrowDown" size="8"> <input type="text" id="key-down-2" value="S" size="8"></div>
+                <div>Up: <input type="text" id="key-up-1" value="ArrowUp" size="8"> <input type="text" id="key-up-2" value="W" size="8"></div>
+                <div>Right: <input type="text" id="key-right-1" value="ArrowRight" size="8"> <input type="text" id="key-right-2" value="D" size="8"></div>
+            </div>
+            <div class="setting-group">
+                <label>Scroll Speed</label>
+                <input type="range" id="setting-speed" min="200" max="1000" value="500">
+                <span id="speed-val">500</span>
+            </div>
+            <div class="setting-group">
+                <label>Arrow Size</label>
+                <input type="range" id="setting-size" min="30" max="80" value="50">
+                <span id="size-val">50</span>
+            </div>
         </div>
-    </div>
-    <div id="game-container">
-        <canvas id="gameCanvas" width="400" height="600"></canvas>
+
+        <!-- Game Area -->
+        <div class="main-game">
+            <div id="ui">
+                <h1 class="title">RHYTHM GENERATOR</h1>
+                <label class="upload-btn">
+                    Choose File (Audio/Video)
+                    <input type="file" id="audio-upload" accept="audio/*, video/*">
+                </label>
+                <div class="controls">
+                    <button id="btn-start" disabled>Start</button>
+                    <button id="btn-pause" disabled>Pause</button>
+                </div>
+                <p id="loading-text"></p>
+            </div>
+
+            <div class="progress-container">
+                <span id="time-passed">0:00</span>
+                <div class="progress-bar"><div id="progress-fill"></div></div>
+                <span id="time-total">0:00</span>
+            </div>
+
+            <div id="game-container">
+                <video id="bg-video" loop muted playsinline></video>
+                <div id="judgment"></div>
+                <canvas id="gameCanvas" width="400" height="600"></canvas>
+            </div>
+        </div>
+
+        <!-- Stats Panel -->
+        <div class="panel stats">
+            <h2>Stats</h2>
+            <div class="stat-main">
+                <p>Score: <span id="score">0</span></p>
+                <p>Combo: <span id="combo">0</span></p>
+                <p>Accuracy: <span id="accuracy">0.00%</span></p>
+            </div>
+            <div class="judgments-list">
+                <p class="j-sick">Sick: <span id="count-sick">0</span></p>
+                <p class="j-good">Good: <span id="count-good">0</span></p>
+                <p class="j-ok">OK: <span id="count-ok">0</span></p>
+                <p class="j-bad">Bad: <span id="count-bad">0</span></p>
+                <p class="j-miss">Miss: <span id="count-miss">0</span></p>
+            </div>
+        </div>
     </div>
     <script src="main.js"></script>
 </body>

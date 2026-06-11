@@ -211,16 +211,20 @@ function generateBeatmap(buffer) {
     const channelData = buffer.getChannelData(0); // Use left channel
     const sampleRate = buffer.sampleRate;
 
-    // Improved onset detection: Local energy thresholding
-    const windowSize = Math.floor(sampleRate * 0.02); // 20ms window for tighter resolution
+    // Improved onset detection: Spectral flux (positive difference between samples)
+    const windowSize = Math.floor(sampleRate * 0.02); // 20ms window
 
     const energies = [];
+    let prevSample = 0;
     for (let i = 0; i < channelData.length; i += windowSize) {
-        let energy = 0;
+        let flux = 0;
         for (let j = 0; j < windowSize && (i + j) < channelData.length; j++) {
-            energy += Math.abs(channelData[i + j]); // Amplitude sum is often cleaner than square for simple detection
+            let currentSample = Math.abs(channelData[i + j]);
+            let diff = currentSample - prevSample;
+            if (diff > 0) flux += diff;
+            prevSample = currentSample;
         }
-        energies.push(energy);
+        energies.push(flux);
     }
 
     // BPM Estimation via interval analysis
@@ -268,11 +272,14 @@ function generateBeatmap(buffer) {
     console.log("Estimated BPM:", Math.round(60 / bestInterval), "Snap interval:", beatSnap);
 
     // Adjust logic based on difficulty
+    // Using flux means average values are lower and peaks are sharper.
+    // We remove the random `chance` drop so that every detected note corresponds to a real beat,
+    // preserving rhythm accuracy.
     const diffMap = {
-        'easy': { mult: 1.1, localWin: 30, chance: 0.4 },
-        'medium': { mult: 0.95, localWin: 20, chance: 0.6 },
-        'hard': { mult: 0.8, localWin: 12, chance: 0.8 },
-        'wtf': { mult: 0.6, localWin: 8, chance: 1.0 }
+        'easy': { mult: 2.0, localWin: 45 },
+        'medium': { mult: 1.5, localWin: 30 },
+        'hard': { mult: 1.1, localWin: 15 },
+        'wtf': { mult: 0.8, localWin: 8 }
     };
 
     const diffSetting = difficultyInput.value;
@@ -280,8 +287,8 @@ function generateBeatmap(buffer) {
 
     const localWindowSize = config.localWin;
     const multiplier = config.mult;
-    const chance = config.chance; // Probability to place a note on a valid peak
 
+    // With spectral flux, noise floor can be ignored more aggressively
     const minAbsEnergy = maxAbsEnergy * 0.05;
 
     // To prevent overlapping notes at the same snap time
@@ -303,8 +310,8 @@ function generateBeatmap(buffer) {
             // Quantize time to nearest beatSnap
             const snappedTime = Math.round(rawTime / beatSnap) * beatSnap;
 
-            // Only add if we haven't already added a note here, and roll RNG for difficulty thinning
-            if (!usedSnaps.has(snappedTime) && Math.random() <= chance) {
+            // Add if we haven't already added a note here at this snapped time
+            if (!usedSnaps.has(snappedTime)) {
                 notes.push({
                     time: snappedTime,
                     lane: Math.floor(Math.random() * 4),

@@ -8,6 +8,7 @@ const judgmentEl = document.getElementById('judgment');
 const bgVideo = document.getElementById('bg-video');
 const btnStart = document.getElementById('btn-start');
 const btnPause = document.getElementById('btn-pause');
+const btnReplay = document.getElementById('btn-replay');
 const loadingText = document.getElementById('loading-text');
 
 // Settings DOM
@@ -68,11 +69,62 @@ const maxHitWindow = windows.bad;
 
 // Keybinds: array of arrays, each lane has 2 possible keys
 let keybinds = [
-    [document.getElementById('key-left-1').value, document.getElementById('key-left-2').value],
-    [document.getElementById('key-down-1').value, document.getElementById('key-down-2').value],
-    [document.getElementById('key-up-1').value, document.getElementById('key-up-2').value],
-    [document.getElementById('key-right-1').value, document.getElementById('key-right-2').value]
+    ['ArrowLeft', 'A'],
+    ['ArrowDown', 'S'],
+    ['ArrowUp', 'W'],
+    ['ArrowRight', 'D']
 ];
+
+// Load settings from local storage
+function loadSettings() {
+    const saved = localStorage.getItem('rhythmSettings');
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            if (parsed.difficulty) difficultyInput.value = parsed.difficulty;
+            if (parsed.scrollSpeed) {
+                speedInput.value = parsed.scrollSpeed;
+                scrollSpeed = parsed.scrollSpeed;
+                speedVal.innerText = scrollSpeed;
+            }
+            if (parsed.noteSize) {
+                sizeInput.value = parsed.noteSize;
+                noteSize = parsed.noteSize;
+                sizeVal.innerText = noteSize;
+            }
+            if (parsed.keybinds) {
+                keybinds = parsed.keybinds;
+                document.getElementById('key-left-1').value = keybinds[0][0];
+                document.getElementById('key-left-2').value = keybinds[0][1];
+                document.getElementById('key-down-1').value = keybinds[1][0];
+                document.getElementById('key-down-2').value = keybinds[1][1];
+                document.getElementById('key-up-1').value = keybinds[2][0];
+                document.getElementById('key-up-2').value = keybinds[2][1];
+                document.getElementById('key-right-1').value = keybinds[3][0];
+                document.getElementById('key-right-2').value = keybinds[3][1];
+            }
+        } catch (e) { console.error("Error loading settings"); }
+    } else {
+        // Initial defaults reading from DOM if no local storage
+        keybinds = [
+            [document.getElementById('key-left-1').value, document.getElementById('key-left-2').value],
+            [document.getElementById('key-down-1').value, document.getElementById('key-down-2').value],
+            [document.getElementById('key-up-1').value, document.getElementById('key-up-2').value],
+            [document.getElementById('key-right-1').value, document.getElementById('key-right-2').value]
+        ];
+    }
+}
+loadSettings();
+
+function saveSettings() {
+    const settings = {
+        difficulty: difficultyInput.value,
+        scrollSpeed: scrollSpeed,
+        noteSize: noteSize,
+        keybinds: keybinds
+    };
+    localStorage.setItem('rhythmSettings', JSON.stringify(settings));
+}
 
 // Key press visual states and timings
 let keyStates = [false, false, false, false];
@@ -80,6 +132,7 @@ let receptorGlow = [0, 0, 0, 0];
 
 // Settings Update Listeners
 difficultyInput.addEventListener('change', (e) => {
+    saveSettings();
     if (audioBuffer && !isPlaying) {
         generateBeatmap(audioBuffer);
     }
@@ -88,11 +141,13 @@ difficultyInput.addEventListener('change', (e) => {
 speedInput.addEventListener('input', (e) => {
     scrollSpeed = parseInt(e.target.value);
     speedVal.innerText = scrollSpeed;
+    saveSettings();
 });
 
 sizeInput.addEventListener('input', (e) => {
     noteSize = parseInt(e.target.value);
     sizeVal.innerText = noteSize;
+    saveSettings();
 });
 
 const updateKeybinds = () => {
@@ -104,6 +159,7 @@ const updateKeybinds = () => {
     keybinds[2][1] = document.getElementById('key-up-2').value;
     keybinds[3][0] = document.getElementById('key-right-1').value;
     keybinds[3][1] = document.getElementById('key-right-2').value;
+    saveSettings();
 };
 
 document.querySelectorAll('.setting-group input[type="text"]').forEach(input => {
@@ -117,6 +173,7 @@ audioUpload.addEventListener('change', function(e) {
     // Reset UI
     btnStart.disabled = true;
     btnPause.disabled = true;
+    btnReplay.disabled = true;
     loadingText.innerText = "Processing file...";
     bgVideo.src = "";
 
@@ -139,6 +196,7 @@ audioUpload.addEventListener('change', function(e) {
             // Enable start button instead of auto-starting
             loadingText.innerText = "Ready!";
             btnStart.disabled = false;
+            btnReplay.disabled = false;
         }, function(e) {
             console.error("Error decoding audio data", e);
             alert("Error decoding audio file.");
@@ -165,26 +223,71 @@ function generateBeatmap(buffer) {
         energies.push(energy);
     }
 
+    // BPM Estimation via interval analysis
+    // Find absolute maximum energy to set a dynamic minimum threshold
+    let maxAbsEnergy = 0;
+    for (let i = 0; i < energies.length; i++) {
+        if (energies[i] > maxAbsEnergy) maxAbsEnergy = energies[i];
+    }
+
+    const peakThreshold = maxAbsEnergy * 0.2;
+    const rawPeaks = [];
+
+    for (let i = 0; i < energies.length; i++) {
+        if (energies[i] > peakThreshold) {
+            rawPeaks.push((i * windowSize) / sampleRate);
+        }
+    }
+
+    // Find the most common interval between peaks
+    const intervals = {};
+    for (let i = 0; i < rawPeaks.length; i++) {
+        for (let j = 1; j < 5 && i + j < rawPeaks.length; j++) {
+            let diff = rawPeaks[i + j] - rawPeaks[i];
+            if (diff > 0.2 && diff < 1.0) { // between 60 and 300 BPM
+                // round to nearest 0.05s
+                let rounded = Math.round(diff * 20) / 20;
+                if (rounded > 0) {
+                    intervals[rounded] = (intervals[rounded] || 0) + 1;
+                }
+            }
+        }
+    }
+
+    let bestInterval = 0.5; // Default 120 BPM
+    let maxCount = 0;
+    for (let interval in intervals) {
+        if (intervals[interval] > maxCount) {
+            maxCount = intervals[interval];
+            bestInterval = parseFloat(interval);
+        }
+    }
+
+    // We can use fractions of the beat interval for snapping
+    const beatSnap = bestInterval / 4; // 16th notes
+    console.log("Estimated BPM:", Math.round(60 / bestInterval), "Snap interval:", beatSnap);
+
     // Adjust logic based on difficulty
     const diffMap = {
-        'easy': { mult: 1.8, minGap: 0.35, localWin: 60 },
-        'medium': { mult: 1.35, minGap: 0.20, localWin: 43 },
-        'hard': { mult: 1.1, minGap: 0.10, localWin: 30 },
-        'wtf': { mult: 0.8, minGap: 0.04, localWin: 15 } // VERY sensitive, fast notes
+        'easy': { mult: 1.1, localWin: 30, chance: 0.4 },
+        'medium': { mult: 0.95, localWin: 20, chance: 0.6 },
+        'hard': { mult: 0.8, localWin: 12, chance: 0.8 },
+        'wtf': { mult: 0.6, localWin: 8, chance: 1.0 }
     };
 
     const diffSetting = difficultyInput.value;
     const config = diffMap[diffSetting] || diffMap['medium'];
 
-    // Calculate local average to find peaks relative to neighborhood
     const localWindowSize = config.localWin;
     const multiplier = config.mult;
+    const chance = config.chance; // Probability to place a note on a valid peak
 
-    let lastBeatTime = 0;
-    const minTimeBetweenBeats = config.minGap;
+    const minAbsEnergy = maxAbsEnergy * 0.05;
+
+    // To prevent overlapping notes at the same snap time
+    let usedSnaps = new Set();
 
     for (let i = 0; i < energies.length; i++) {
-        // Calculate local average
         let start = Math.max(0, i - Math.floor(localWindowSize / 2));
         let end = Math.min(energies.length, i + Math.floor(localWindowSize / 2));
 
@@ -194,21 +297,28 @@ function generateBeatmap(buffer) {
         }
         let localAverage = localSum / (end - start);
 
-        // If energy is significantly higher than local average
-        if (energies[i] > localAverage * multiplier && energies[i] > 0.5) { // Also require a minimum absolute energy
-            const time = (i * windowSize) / sampleRate;
-            if (time - lastBeatTime > minTimeBetweenBeats) {
+        if (energies[i] > localAverage * multiplier && energies[i] > minAbsEnergy) {
+            const rawTime = (i * windowSize) / sampleRate;
+
+            // Quantize time to nearest beatSnap
+            const snappedTime = Math.round(rawTime / beatSnap) * beatSnap;
+
+            // Only add if we haven't already added a note here, and roll RNG for difficulty thinning
+            if (!usedSnaps.has(snappedTime) && Math.random() <= chance) {
                 notes.push({
-                    time: time,
+                    time: snappedTime,
                     lane: Math.floor(Math.random() * 4),
                     hit: false,
                     missed: false
                 });
-                lastBeatTime = time;
+                usedSnaps.add(snappedTime);
             }
         }
     }
-    console.log("Generated " + notes.length + " notes.");
+
+    // Ensure notes are strictly sorted by time
+    notes.sort((a, b) => a.time - b.time);
+    console.log("Generated " + notes.length + " quantized notes.");
 }
 
 function formatTime(seconds) {
@@ -288,9 +398,25 @@ function pauseGame() {
     btnPause.disabled = true;
 }
 
+function replayGame() {
+    if (!audioBuffer) return;
+
+    if (isPlaying || isPaused) {
+        try { audioSource.stop(); } catch(e) {}
+        isPlaying = false;
+        isPaused = false;
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+    }
+
+    btnStart.innerText = "Start";
+    startGame();
+}
+
 btnStart.addEventListener('click', startGame);
 btnPause.addEventListener('click', pauseGame);
-
+btnReplay.addEventListener('click', replayGame);
 
 function updateStats() {
     scoreEl.innerText = score;
@@ -405,6 +531,9 @@ function gameLoop() {
     // Check if song finished
     if (currentTime > audioBuffer.duration) {
         isPlaying = false;
+        btnStart.innerText = "Start";
+        btnStart.disabled = false;
+        btnPause.disabled = true;
         showJudgment("FINISH", "#ffffff");
         return;
     }

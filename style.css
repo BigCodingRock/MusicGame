@@ -176,16 +176,21 @@ canvas {
     display: block;
 }
 
+#judgment-container {
+    margin-top: 20px;
+    height: 60px; /* fixed height so panel doesn't jump */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    border-top: 1px solid #444;
+    padding-top: 10px;
+}
+
 #judgment {
-    position: absolute;
-    top: 40%;
-    width: 100%;
     text-align: center;
     font-weight: bold;
-    font-size: 3em;
-    text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+    font-size: 2em;
     pointer-events: none;
-    z-index: 10;
     opacity: 0;
     transition: opacity 0.1s;
 }

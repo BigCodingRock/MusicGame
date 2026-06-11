@@ -50,6 +50,7 @@
                 <div class="controls">
                     <button id="btn-start" disabled>Start</button>
                     <button id="btn-pause" disabled>Pause</button>
+                    <button id="btn-replay" disabled>Replay</button>
                 </div>
                 <p id="loading-text"></p>
             </div>
@@ -62,7 +63,6 @@
 
             <div id="game-container">
                 <video id="bg-video" loop muted playsinline></video>
-                <div id="judgment"></div>
                 <canvas id="gameCanvas" width="400" height="600"></canvas>
             </div>
         </div>
@@ -81,6 +81,10 @@
                 <p class="j-ok">OK: <span id="count-ok">0</span></p>
                 <p class="j-bad">Bad: <span id="count-bad">0</span></p>
                 <p class="j-miss">Miss: <span id="count-miss">0</span></p>
+            </div>
+
+            <div id="judgment-container">
+                <div id="judgment"></div>
             </div>
         </div>
     </div>

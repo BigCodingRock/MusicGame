@@ -227,29 +227,53 @@ function generateBeatmap(buffer) {
         energies.push(flux);
     }
 
-    // BPM Estimation via interval analysis
-    // Find absolute maximum energy to set a dynamic minimum threshold
-    let maxAbsEnergy = 0;
+    // Calculate global mean and standard deviation to find true peaks
+    let totalFlux = 0;
     for (let i = 0; i < energies.length; i++) {
-        if (energies[i] > maxAbsEnergy) maxAbsEnergy = energies[i];
+        totalFlux += energies[i];
+    }
+    let globalMean = totalFlux / energies.length;
+
+    let sqSum = 0;
+    for (let i = 0; i < energies.length; i++) {
+        sqSum += Math.pow(energies[i] - globalMean, 2);
+    }
+    let stdDev = Math.sqrt(sqSum / energies.length);
+
+    // Dynamic Thresholding (Adaptive)
+    const localWindowSize = 25; // 0.5s around the point
+    const thresholds = [];
+
+    for (let i = 0; i < energies.length; i++) {
+        let start = Math.max(0, i - Math.floor(localWindowSize / 2));
+        let end = Math.min(energies.length, i + Math.floor(localWindowSize / 2));
+
+        let localSum = 0;
+        for (let j = start; j < end; j++) {
+            localSum += energies[j];
+        }
+        let localMean = localSum / (end - start);
+
+        // Threshold is heavily weighted by local mean to adapt to quiet parts,
+        // with a base floor relative to global stats to ignore noise.
+        thresholds.push(localMean);
     }
 
-    const peakThreshold = maxAbsEnergy * 0.2;
+    // BPM Estimation
     const rawPeaks = [];
-
+    // Only look at prominent peaks for BPM estimation
+    const bpmThreshold = globalMean + stdDev * 1.5;
     for (let i = 0; i < energies.length; i++) {
-        if (energies[i] > peakThreshold) {
+        if (energies[i] > bpmThreshold && energies[i] > thresholds[i] * 1.5) {
             rawPeaks.push((i * windowSize) / sampleRate);
         }
     }
 
-    // Find the most common interval between peaks
     const intervals = {};
     for (let i = 0; i < rawPeaks.length; i++) {
         for (let j = 1; j < 5 && i + j < rawPeaks.length; j++) {
             let diff = rawPeaks[i + j] - rawPeaks[i];
-            if (diff > 0.2 && diff < 1.0) { // between 60 and 300 BPM
-                // round to nearest 0.05s
+            if (diff > 0.2 && diff < 1.0) {
                 let rounded = Math.round(diff * 20) / 20;
                 if (rounded > 0) {
                     intervals[rounded] = (intervals[rounded] || 0) + 1;
@@ -267,50 +291,44 @@ function generateBeatmap(buffer) {
         }
     }
 
-    // We can use fractions of the beat interval for snapping
     const beatSnap = bestInterval / 4; // 16th notes
     console.log("Estimated BPM:", Math.round(60 / bestInterval), "Snap interval:", beatSnap);
 
     // Adjust logic based on difficulty
-    // Using flux means average values are lower and peaks are sharper.
-    // We remove the random `chance` drop so that every detected note corresponds to a real beat,
-    // preserving rhythm accuracy.
+    // We scale the threshold multiplier and the noise floor threshold
+    // Easy mode will capture many more notes now
     const diffMap = {
-        'easy': { mult: 2.0, localWin: 45 },
-        'medium': { mult: 1.5, localWin: 30 },
-        'hard': { mult: 1.1, localWin: 15 },
-        'wtf': { mult: 0.8, localWin: 8 }
+        'easy': { mult: 1.2, baseDev: 0.1 },   // Picks up most distinct sounds
+        'medium': { mult: 1.1, baseDev: -0.1 }, // Picks up almost everything slightly above average
+        'hard': { mult: 0.9, baseDev: -0.3 },   // Picks up sub-peaks
+        'wtf': { mult: 0.7, baseDev: -0.5 }     // Maximum density
     };
 
     const diffSetting = difficultyInput.value;
     const config = diffMap[diffSetting] || diffMap['medium'];
 
-    const localWindowSize = config.localWin;
     const multiplier = config.mult;
+    const noiseFloor = globalMean + (stdDev * config.baseDev); // Absolute minimum required to be a note
 
-    // With spectral flux, noise floor can be ignored more aggressively
-    const minAbsEnergy = maxAbsEnergy * 0.05;
-
-    // To prevent overlapping notes at the same snap time
     let usedSnaps = new Set();
 
     for (let i = 0; i < energies.length; i++) {
-        let start = Math.max(0, i - Math.floor(localWindowSize / 2));
-        let end = Math.min(energies.length, i + Math.floor(localWindowSize / 2));
-
-        let localSum = 0;
-        for (let j = start; j < end; j++) {
-            localSum += energies[j];
+        // Find local maxima
+        let isLocalMax = true;
+        let scanRange = 2; // Look 2 frames left and right (40ms) to ensure it's a true peak
+        for(let j = Math.max(0, i - scanRange); j <= Math.min(energies.length - 1, i + scanRange); j++) {
+            if (energies[j] > energies[i]) {
+                isLocalMax = false;
+                break;
+            }
         }
-        let localAverage = localSum / (end - start);
 
-        if (energies[i] > localAverage * multiplier && energies[i] > minAbsEnergy) {
+        // If it's a local peak, above our noise floor, and above the dynamically scaled local threshold
+        if (isLocalMax && energies[i] > noiseFloor && energies[i] > thresholds[i] * multiplier) {
             const rawTime = (i * windowSize) / sampleRate;
 
-            // Quantize time to nearest beatSnap
             const snappedTime = Math.round(rawTime / beatSnap) * beatSnap;
 
-            // Add if we haven't already added a note here at this snapped time
             if (!usedSnaps.has(snappedTime)) {
                 notes.push({
                     time: snappedTime,
